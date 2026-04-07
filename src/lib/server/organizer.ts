@@ -2,6 +2,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 
 export type OrganizeMode = 'flat' | 'by-year' | 'by-year-month';
+export type TransferMode = 'copy' | 'symlink';
 
 export interface OrganizerProgress {
 	type: 'progress';
@@ -123,7 +124,7 @@ function albumFromPath(filePath: string, sourceRoot: string): string {
 	const rel = path.relative(sourceRoot, filePath);
 	const parts = rel.split(path.sep);
 	const gpIdx = parts.findIndex(
-		(p) => p.toLowerCase().includes('google photos') || p.toLowerCase().includes('google foto')
+		(p: string) => p.toLowerCase().includes('google photos') || p.toLowerCase().includes('google foto')
 	);
 	if (gpIdx >= 0 && parts.length > gpIdx + 2) return parts[gpIdx + 1];
 	if (parts.length >= 2) return parts[parts.length - 2];
@@ -135,7 +136,8 @@ function albumFromPath(filePath: string, sourceRoot: string): string {
 export async function* organizeFolder(
 	sourcePath: string,
 	outputPath: string,
-	mode: OrganizeMode
+	mode: OrganizeMode,
+	transferMode: TransferMode = 'copy'
 ): AsyncGenerator<OrganizerEvent> {
 	// Validate source path
 	let stat;
@@ -182,7 +184,7 @@ export async function* organizeFolder(
 			phase: 'copying',
 			current: processed,
 			total: mediaPaths.length,
-			message: `Copying ${path.basename(mediaPath)}…`
+			message: `${transferMode === 'symlink' ? 'Linking' : 'Copying'} ${path.basename(mediaPath)}…`
 		};
 
 		albumSet.add(albumFromPath(mediaPath, resolvedSource));
@@ -216,9 +218,13 @@ export async function* organizeFolder(
 
 		try {
 			await fs.mkdir(path.dirname(destPath), { recursive: true });
-			await fs.copyFile(mediaPath, destPath);
-			const tsSeconds = takenAt.getTime() / 1000;
-			await fs.utimes(destPath, tsSeconds, tsSeconds);
+			if (transferMode === 'symlink') {
+				await fs.symlink(mediaPath, destPath);
+			} else {
+				await fs.copyFile(mediaPath, destPath);
+				const tsSeconds = takenAt.getTime() / 1000;
+				await fs.utimes(destPath, tsSeconds, tsSeconds);
+			}
 		} catch {
 			skipped++;
 		}
@@ -229,7 +235,7 @@ export async function* organizeFolder(
 		phase: 'done',
 		current: mediaPaths.length,
 		total: mediaPaths.length,
-		message: `Done! Copied ${processed - skipped} files.`
+		message: `Done! ${transferMode === 'symlink' ? 'Linked' : 'Copied'} ${processed - skipped} files.`
 	};
 
 	yield {

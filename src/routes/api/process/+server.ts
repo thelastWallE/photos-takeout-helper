@@ -1,15 +1,18 @@
 import type { RequestHandler } from './$types';
-import { organizeFolder, type OrganizeMode } from '$lib/server/organizer';
+import { organizeFolder, type OrganizeMode, type TransferMode } from '$lib/server/organizer';
 
 export const GET: RequestHandler = ({ url }) => {
 	const source = url.searchParams.get('source') ?? '';
 	const output = url.searchParams.get('output') ?? '';
 	const modeParam = url.searchParams.get('mode') ?? 'by-year-month';
+	const transferParam = url.searchParams.get('transferMode') ?? 'copy';
 
 	const VALID_MODES = new Set<string>(['flat', 'by-year', 'by-year-month']);
 	const mode: OrganizeMode = VALID_MODES.has(modeParam)
 		? (modeParam as OrganizeMode)
 		: 'by-year-month';
+
+	const transferMode: TransferMode = transferParam === 'symlink' ? 'symlink' : 'copy';
 
 	if (!source || !output) {
 		return new Response('Missing source or output parameter', { status: 400 });
@@ -24,7 +27,7 @@ export const GET: RequestHandler = ({ url }) => {
 			};
 
 			try {
-				for await (const event of organizeFolder(source, output, mode)) {
+				for await (const event of organizeFolder(source, output, mode, transferMode)) {
 					send(event);
 					if (event.type === 'result' || event.type === 'error') break;
 				}

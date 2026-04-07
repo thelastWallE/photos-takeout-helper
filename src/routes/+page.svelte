@@ -1,5 +1,6 @@
 <script lang="ts">
 	type OrganizeMode = "flat" | "by-year" | "by-year-month";
+	type TransferMode = "copy" | "symlink";
 
 	interface ProgressEvent {
 		type: "progress";
@@ -28,6 +29,7 @@
 	let sourcePath = $state("");
 	let outputPath = $state("");
 	let organizeMode = $state<OrganizeMode>("by-year-month");
+	let transferMode = $state<TransferMode>("copy");
 	let isProcessing = $state(false);
 	let progress = $state<ProgressEvent | null>(null);
 	let result = $state<ResultData | null>(null);
@@ -39,9 +41,25 @@
 			: 0,
 	);
 
+	let pickingField = $state<"source" | "output" | null>(null);
+
 	let canProcess = $derived(
 		sourcePath.trim() !== "" && outputPath.trim() !== "" && !isProcessing,
 	);
+
+	async function pickDir(field: "source" | "output") {
+		pickingField = field;
+		try {
+			const res = await fetch("/api/pick-dir");
+			if (res.ok) {
+				const data = await res.json();
+				if (field === "source") sourcePath = data.path;
+				else outputPath = data.path;
+			}
+		} finally {
+			pickingField = null;
+		}
+	}
 
 	function reset() {
 		result = null;
@@ -61,6 +79,7 @@
 			source: sourcePath.trim(),
 			output: outputPath.trim(),
 			mode: organizeMode,
+			transferMode: transferMode,
 		});
 
 		const es = new EventSource(`/api/process?${params}`);
@@ -178,16 +197,27 @@
 						>(your extracted Google Photos folder)</span
 					>
 				</label>
-				<input
-					id="source-path"
-					type="text"
-					placeholder="/home/you/Takeout/Google Photos"
-					class="w-full rounded-lg bg-gray-800 border border-gray-700 px-4 py-2.5 text-sm text-gray-100
-						placeholder-gray-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500
-						disabled:opacity-50"
-					bind:value={sourcePath}
-					disabled={isProcessing}
-				/>
+				<div class="flex gap-2">
+					<input
+						id="source-path"
+						type="text"
+						placeholder="/home/you/Takeout/Google Photos"
+						class="flex-1 rounded-lg bg-gray-800 border border-gray-700 px-4 py-2.5 text-sm text-gray-100
+							placeholder-gray-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500
+							disabled:opacity-50"
+						bind:value={sourcePath}
+						disabled={isProcessing}
+					/>
+					<button
+						class="shrink-0 rounded-lg bg-gray-700 hover:bg-gray-600 border border-gray-600 px-3 py-2.5
+							text-sm text-gray-300 disabled:opacity-50 transition-colors"
+						onclick={() => pickDir("source")}
+						disabled={isProcessing || pickingField !== null}
+						title="Browse for folder"
+					>
+						{pickingField === "source" ? "…" : "📂"}
+					</button>
+				</div>
 			</div>
 
 			<div class="space-y-1.5">
@@ -199,16 +229,27 @@
 						>(will be created if it doesn't exist)</span
 					>
 				</label>
-				<input
-					id="output-path"
-					type="text"
-					placeholder="/home/you/Photos/Organized"
-					class="w-full rounded-lg bg-gray-800 border border-gray-700 px-4 py-2.5 text-sm text-gray-100
-						placeholder-gray-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500
-						disabled:opacity-50"
-					bind:value={outputPath}
-					disabled={isProcessing}
-				/>
+				<div class="flex gap-2">
+					<input
+						id="output-path"
+						type="text"
+						placeholder="/home/you/Photos/Organized"
+						class="flex-1 rounded-lg bg-gray-800 border border-gray-700 px-4 py-2.5 text-sm text-gray-100
+							placeholder-gray-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500
+							disabled:opacity-50"
+						bind:value={outputPath}
+						disabled={isProcessing}
+					/>
+					<button
+						class="shrink-0 rounded-lg bg-gray-700 hover:bg-gray-600 border border-gray-600 px-3 py-2.5
+							text-sm text-gray-300 disabled:opacity-50 transition-colors"
+						onclick={() => pickDir("output")}
+						disabled={isProcessing || pickingField !== null}
+						title="Browse for folder"
+					>
+						{pickingField === "output" ? "…" : "📂"}
+					</button>
+				</div>
 			</div>
 		</section>
 
@@ -239,6 +280,33 @@
 			</div>
 		</section>
 
+		<!-- Transfer mode -->
+		<section
+			class="rounded-xl bg-gray-900 border border-gray-800 p-6 space-y-4"
+		>
+			<h2
+				class="text-sm font-semibold uppercase tracking-wider text-blue-400"
+			>
+				3. Transfer mode
+			</h2>
+			<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+				{#each [{ value: "copy", label: "📋 Copy", desc: "Duplicate files into the output folder" }, { value: "symlink", label: "🔗 Symlink", desc: "Create symbolic links — no extra disk space used" }] as opt (opt.value)}
+					<button
+						class="rounded-lg border p-4 text-left transition-colors
+							{transferMode === opt.value
+							? 'border-blue-500 bg-blue-950/40 text-white'
+							: 'border-gray-700 bg-gray-800 text-gray-300 hover:border-gray-500'}"
+						onclick={() =>
+							(transferMode = opt.value as TransferMode)}
+						disabled={isProcessing}
+					>
+						<div class="font-semibold text-sm">{opt.label}</div>
+						<div class="text-xs mt-1 text-gray-400">{opt.desc}</div>
+					</button>
+				{/each}
+			</div>
+		</section>
+
 		<!-- Process -->
 		<section
 			class="rounded-xl bg-gray-900 border border-gray-800 p-6 space-y-4"
@@ -246,7 +314,7 @@
 			<h2
 				class="text-sm font-semibold uppercase tracking-wider text-blue-400"
 			>
-				3. Process
+				4. Process
 			</h2>
 
 			<button
@@ -302,7 +370,9 @@
 					<div class="grid grid-cols-2 gap-2 text-sm">
 						<div class="rounded bg-gray-800 p-3">
 							<div class="text-gray-400 text-xs">
-								Photos copied
+								Photos {transferMode === "symlink"
+									? "linked"
+									: "copied"}
 							</div>
 							<div class="text-white font-bold text-lg">
 								{result.totalPhotos}
@@ -358,8 +428,8 @@
 					for correct date-based sorting.
 				</li>
 				<li>
-					Files are <strong>copied</strong>, not moved — your
-					originals are always preserved.
+					Files are <strong>copied</strong> (or symlinked) — your originals
+					are always preserved.
 				</li>
 				<li>The output folder must not be inside the source folder.</li>
 			</ul>
